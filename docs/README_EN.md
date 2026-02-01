@@ -16,7 +16,7 @@ swaggo -dir ./your-project -title "My API"
 
 Full options:
 
-```
+```text
 -dir        Directory to parse (default: .)
 -output     Output path without extension (default: docs/openapi)
 -format     Output format: json, yaml, both (default: both)
@@ -30,24 +30,29 @@ Full options:
 swaggo parses your source code using Go's AST and detects:
 
 Route registration:
+
 - `r.GET()`, `r.POST()` etc.
 - Route groups with proper prefix handling
 
 Parameters:
+
 - `c.Param("id")` detected as path parameter
 - `c.Query("page")` detected as query parameter
 - `c.DefaultQuery("limit", "10")` records default value
 - `c.GetHeader("Authorization")` detected as header parameter
 
 Request Body:
+
 - `c.ShouldBindJSON(&req)` finds the corresponding struct type
 
 Response:
+
 - `c.JSON(200, data)` infers response type
 - Supports constants like `http.StatusOK`
 - Array responses are properly marked
 
 Struct fields:
+
 - `json` tag determines field name
 - `binding:"required"` marks required fields
 - `example:"value"` sets example value

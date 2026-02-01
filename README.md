@@ -16,7 +16,7 @@ swaggo -dir ./your-project -title "My API"
 
 完整參數：
 
-```
+```text
 -dir        要解析的目錄（預設：.）
 -output     輸出路徑，不含副檔名（預設：docs/openapi）
 -format     輸出格式：json, yaml, both（預設：both）
@@ -30,24 +30,29 @@ swaggo -dir ./your-project -title "My API"
 swaggo 透過 Go 的 AST 解析你的原始碼，自動偵測：
 
 路由註冊：
+
 - `r.GET()`, `r.POST()` 等
 - Route group 會正確處理前綴
 
 參數：
+
 - `c.Param("id")` 偵測為 path parameter
 - `c.Query("page")` 偵測為 query parameter
 - `c.DefaultQuery("limit", "10")` 會記錄預設值
 - `c.GetHeader("Authorization")` 偵測為 header parameter
 
 Request Body：
+
 - `c.ShouldBindJSON(&req)` 會找到對應的 struct 型別
 
 Response：
+
 - `c.JSON(200, data)` 會推斷回應型別
 - 支援 `http.StatusOK` 這類常數
 - 陣列回應會正確標記為 array
 
 Struct 欄位：
+
 - `json` tag 決定欄位名稱
 - `binding:"required"` 標記必填欄位
 - `example:"value"` 設定範例值

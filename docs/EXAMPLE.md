@@ -9,7 +9,7 @@ cd example
 go run main.go
 ```
 
-瀏覽器開啟 http://localhost:8080/swagger 查看 Swagger UI。
+瀏覽器開啟 <http://localhost:8080/swagger> 查看 Swagger UI。
 
 ## 產生文檔
 
@@ -53,7 +53,7 @@ swagger-ui.html 內容：
 
 ## 專案結構
 
-```
+```tree
 example/
 ├── main.go              # API handlers
 └── docs/
