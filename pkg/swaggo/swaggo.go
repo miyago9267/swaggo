@@ -164,9 +164,12 @@ func (g *Generator) routeToOperation(route *RouteInfo) *Operation {
 		}
 	}
 
+	// Tag 使用 group path 最後一段，例如 /api/v1/products -> products
 	if route.Group != "" {
 		tag := strings.Trim(route.Group, "/")
 		if tag != "" {
+			parts := strings.Split(tag, "/")
+			tag = parts[len(parts)-1]
 			op.Tags = []string{tag}
 		}
 	}
@@ -296,11 +299,12 @@ func (g *Generator) primitiveSchema(goType string) *Schema {
 	case "string":
 		return &Schema{Type: "string"}
 	case "int", "int8", "int16", "int32", "int64",
-		"uint", "uint8", "uint16", "uint32", "uint64":
+		"uint", "uint8", "uint16", "uint32", "uint64",
+		"integer": // OpenAPI type
 		return &Schema{Type: "integer"}
 	case "float32", "float64":
 		return &Schema{Type: "number"}
-	case "bool":
+	case "bool", "boolean": // boolean 是 OpenAPI type
 		return &Schema{Type: "boolean"}
 	case "time.Time":
 		return &Schema{Type: "string", Format: "date-time"}

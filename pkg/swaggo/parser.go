@@ -328,7 +328,7 @@ func (p *Parser) analyzeHandlerBody(fn *ast.FuncDecl, handler *HandlerInfo) {
 				if name := p.extractStringArg(call.Args[0]); name != "" {
 					handler.Parameters = append(handler.Parameters, &ParameterInfo{
 						Name: name,
-						Type: "string",
+						Type: inferQueryParamType(name),
 						In:   "query",
 					})
 				}
@@ -339,7 +339,7 @@ func (p *Parser) analyzeHandlerBody(fn *ast.FuncDecl, handler *HandlerInfo) {
 				if name := p.extractStringArg(call.Args[0]); name != "" {
 					handler.Parameters = append(handler.Parameters, &ParameterInfo{
 						Name:    name,
-						Type:    "string",
+						Type:    inferQueryParamType(name),
 						In:      "query",
 						Default: p.extractStringArg(call.Args[1]),
 					})
@@ -357,6 +357,53 @@ func (p *Parser) analyzeHandlerBody(fn *ast.FuncDecl, handler *HandlerInfo) {
 				}
 			}
 
+		case "ShouldBindQuery", "BindQuery":
+			if len(call.Args) > 0 {
+				typeName := p.extractTypeFromBindArgWithLocals(call.Args[0], localVarTypes)
+				if typeName != "" {
+					if typeInfo, ok := p.Types[typeName]; ok {
+						for _, field := range typeInfo.Fields {
+							paramName := field.JSONName
+							if formTag, ok := field.Tags["form"]; ok {
+								parts := strings.Split(formTag, ",")
+								if parts[0] != "" && parts[0] != "-" {
+									paramName = parts[0]
+								}
+							}
+							handler.Parameters = append(handler.Parameters, &ParameterInfo{
+								Name:     paramName,
+								Type:     field.Type,
+								In:       "query",
+								Required: field.Required,
+							})
+						}
+					}
+				}
+			}
+
+		case "ShouldBindUri", "BindUri":
+			if len(call.Args) > 0 {
+				typeName := p.extractTypeFromBindArgWithLocals(call.Args[0], localVarTypes)
+				if typeName != "" {
+					if typeInfo, ok := p.Types[typeName]; ok {
+						for _, field := range typeInfo.Fields {
+							paramName := field.JSONName
+							if uriTag, ok := field.Tags["uri"]; ok {
+								parts := strings.Split(uriTag, ",")
+								if parts[0] != "" && parts[0] != "-" {
+									paramName = parts[0]
+								}
+							}
+							handler.Parameters = append(handler.Parameters, &ParameterInfo{
+								Name:     paramName,
+								Type:     field.Type,
+								In:       "path",
+								Required: true,
+							})
+						}
+					}
+				}
+			}
 		case "ShouldBindJSON", "BindJSON", "ShouldBind", "Bind":
 			if len(call.Args) > 0 {
 				typeName := p.extractTypeFromBindArgWithLocals(call.Args[0], localVarTypes)
@@ -470,7 +517,7 @@ func (p *Parser) extractRoutes(file *ast.File) {
 			handlerName = h.Sel.Name
 		}
 
-		if handlerName == "" {
+		if handlerName == "" || shouldSkipHandler(handlerName) {
 			return true
 		}
 
@@ -759,3 +806,40 @@ func httpStatusCode(name string) int {
 	}
 	return codes[name]
 }
+
+// inferQueryParamType 根據參數名稱啟發式推斷型別
+func inferQueryParamType(name string) string {
+	integerParams := map[string]bool{
+		"page": true, "limit": true, "offset": true, "size": true,
+		"per_page": true, "page_size": true, "count": true,
+		"id": true, "user_id": true, "order_id": true, "product_id": true,
+	}
+	boolParams := map[string]bool{
+		"active": true, "enabled": true, "deleted": true, "archived": true,
+		"is_active": true, "is_deleted": true, "published": true,
+	}
+
+	lower := strings.ToLower(name)
+	if integerParams[lower] {
+		return "integer"
+	}
+	if boolParams[lower] {
+		return "boolean"
+	}
+	return "string"
+}
+
+// shouldSkipHandler 判斷是否應該跳過這個 handler（靜態檔案、redirect 等）
+func shouldSkipHandler(name string) bool {
+	skipPatterns := []string{
+		"StaticFile", "Static", "StaticFS",
+		"func1", "func2", "func3", "func4", "func5", // anonymous handlers
+	}
+	for _, pattern := range skipPatterns {
+		if strings.Contains(name, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
