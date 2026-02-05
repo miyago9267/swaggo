@@ -20,6 +20,10 @@ type Parser struct {
 	Routes   []*RouteInfo
 	Handlers map[string]*HandlerInfo
 	Types    map[string]*TypeInfo
+
+	excludeDirs     []string
+	parseVendor     bool
+	parseDependency bool
 }
 
 // RouteInfo 路由資訊
@@ -98,9 +102,25 @@ func (p *Parser) ParseDir(dir string) error {
 			return err
 		}
 		if info.IsDir() {
-			if info.Name() == "vendor" || info.Name() == ".git" {
+			name := info.Name()
+
+			// 跳過 .git
+			if name == ".git" {
 				return filepath.SkipDir
 			}
+
+			// vendor 目錄
+			if name == "vendor" && !p.parseVendor {
+				return filepath.SkipDir
+			}
+
+			// 排除目錄
+			for _, exc := range p.excludeDirs {
+				if name == exc {
+					return filepath.SkipDir
+				}
+			}
+
 			pkgs, err := parser.ParseDir(p.fset, path, func(fi os.FileInfo) bool {
 				return !strings.HasSuffix(fi.Name(), "_test.go")
 			}, parser.ParseComments)

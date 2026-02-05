@@ -14,7 +14,18 @@ type Generator struct {
 	Host        string
 	Schemes     []string
 
+	excludeDirs     []string
+	parseVendor     bool
+	parseDependency bool
+
 	parser *Parser
+}
+
+// Stats 統計資訊
+type Stats struct {
+	Routes   int
+	Handlers int
+	Types    int
 }
 
 func New() *Generator {
@@ -54,6 +65,31 @@ func (g *Generator) WithHost(host string) *Generator {
 func (g *Generator) WithSchemes(schemes ...string) *Generator {
 	g.Schemes = schemes
 	return g
+}
+
+func (g *Generator) WithExclude(dirs ...string) *Generator {
+	g.excludeDirs = dirs
+	g.parser.excludeDirs = dirs
+	return g
+}
+
+func (g *Generator) SetParseVendor(v bool) {
+	g.parseVendor = v
+	g.parser.parseVendor = v
+}
+
+func (g *Generator) SetParseDependency(v bool) {
+	g.parseDependency = v
+	g.parser.parseDependency = v
+}
+
+// Stats 回傳解析統計資訊
+func (g *Generator) Stats() Stats {
+	return Stats{
+		Routes:   len(g.parser.Routes),
+		Handlers: len(g.parser.Handlers),
+		Types:    len(g.parser.Types),
+	}
 }
 
 func (g *Generator) ParseSource(paths ...string) error {
