@@ -1,6 +1,6 @@
 # Binaries
-swago
-swaggo
+/swago
+/swaggo
 *.exe
 *.exe~
 *.dll
