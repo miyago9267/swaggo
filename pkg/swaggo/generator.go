@@ -1,4 +1,3 @@
-// Package swaggo 自動從 Gin handler 產生 Swagger/OpenAPI 文檔
 package swaggo
 
 import (
@@ -83,7 +82,6 @@ func (g *Generator) SetParseDependency(v bool) {
 	g.parser.parseDependency = v
 }
 
-// Stats 回傳解析統計資訊
 func (g *Generator) Stats() Stats {
 	return Stats{
 		Routes:   len(g.parser.Routes),
@@ -155,9 +153,15 @@ func (g *Generator) Generate() (*OpenAPI, error) {
 		spec.Paths[path] = pathItem
 	}
 
-	for name, typeInfo := range g.parser.Types {
+	registeredSchemas := make(map[string]bool)
+	for _, typeInfo := range g.parser.Types {
+		name := typeInfo.Name
+		if registeredSchemas[name] {
+			continue
+		}
 		if g.isTypeReferenced(name) {
 			spec.Components.Schemas[name] = g.typeToSchema(typeInfo)
+			registeredSchemas[name] = true
 		}
 	}
 
@@ -200,7 +204,6 @@ func (g *Generator) routeToOperation(route *RouteInfo) *Operation {
 		}
 	}
 
-	// Tag 使用 group path 最後一段，例如 /api/v1/products -> products
 	if route.Group != "" {
 		tag := strings.Trim(route.Group, "/")
 		if tag != "" {
@@ -336,11 +339,11 @@ func (g *Generator) primitiveSchema(goType string) *Schema {
 		return &Schema{Type: "string"}
 	case "int", "int8", "int16", "int32", "int64",
 		"uint", "uint8", "uint16", "uint32", "uint64",
-		"integer": // OpenAPI type
+		"integer":
 		return &Schema{Type: "integer"}
 	case "float32", "float64":
 		return &Schema{Type: "number"}
-	case "bool", "boolean": // boolean 是 OpenAPI type
+	case "bool", "boolean":
 		return &Schema{Type: "boolean"}
 	case "time.Time":
 		return &Schema{Type: "string", Format: "date-time"}
@@ -356,12 +359,16 @@ func (g *Generator) primitiveSchema(goType string) *Schema {
 
 func (g *Generator) isTypeReferenced(name string) bool {
 	for _, handler := range g.parser.Handlers {
-		if handler.RequestBody != nil && handler.RequestBody.Name == name {
-			return true
+		if handler.RequestBody != nil {
+			if handler.RequestBody.Name == name || handler.RequestBody.FullName == name {
+				return true
+			}
 		}
 		for _, resp := range handler.Responses {
-			if resp.Type != nil && resp.Type.Name == name {
-				return true
+			if resp.Type != nil {
+				if resp.Type.Name == name || resp.Type.FullName == name {
+					return true
+				}
 			}
 		}
 	}
@@ -369,7 +376,9 @@ func (g *Generator) isTypeReferenced(name string) bool {
 		for _, field := range ti.Fields {
 			fieldType := strings.TrimPrefix(field.Type, "*")
 			fieldType = strings.TrimPrefix(fieldType, "[]")
-			if fieldType == name {
+			parts := strings.Split(fieldType, ".")
+			simpleName := parts[len(parts)-1]
+			if fieldType == name || simpleName == name {
 				return true
 			}
 		}
@@ -377,8 +386,6 @@ func (g *Generator) isTypeReferenced(name string) bool {
 	return false
 }
 
-// convertGinPathToOpenAPI 將 Gin 路徑參數格式轉換為 OpenAPI 格式
-// :id -> {id}, *filepath -> {filepath}
 func convertGinPathToOpenAPI(path string) string {
 	result := strings.ReplaceAll(path, ":", "{")
 
