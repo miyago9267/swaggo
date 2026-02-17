@@ -73,7 +73,8 @@ Endpoints:
 swaggo [flags]
 
 Flags:
-  -d, -dir string           要解析的目錄（預設 "."）
+  -d, -dir string           專案根目錄（預設 "."）
+  -e, -entry string         入口檔案（如 cmd/api/main.go），只解析 import 到的 package
   -o, -output string        輸出目錄（預設 "docs"）
   -t, -title string         API 標題（預設 "API Documentation"）
   -desc string              API 描述
@@ -82,7 +83,7 @@ Flags:
   -basePath string          API base path（預設 "/"）
   -format string            輸出格式：json, yaml, both（預設 "both"）
   -ui                       產生 Swagger UI HTML（預設 true）
-  -exclude string           排除的目錄（逗號分隔）
+  -x, -exclude string       排除的目錄（逗號分隔）
   -parseVendor              解析 vendor 目錄（預設 false）
   -parseDependency          解析外部依賴（預設 false）
   -q, -quiet                安靜模式，只輸出錯誤
@@ -92,21 +93,46 @@ Flags:
 ### 範例
 
 ```bash
-# 基本用法
-swaggo -dir ./cmd/server -title "My API"
+# 基本用法 - 掃描整個專案
+swaggo -d ./myproject -t "My API"
 
-# 自訂輸出目錄
-swaggo -d . -o ./api/docs -format json
-
-# 設定 host 和 base path
-swaggo -dir . -host localhost:8080 -basePath /api/v1
+# 從指定入口掃描（推薦用於 monorepo/微服務）
+swaggo -d . -e cmd/api/main.go -o docs/api
+swaggo -d . -e cmd/admin/main.go -o docs/admin
 
 # 排除目錄
-swaggo -dir . -exclude "test,mock,internal"
+swaggo -d . -x test,mock,scripts
+
+# 設定 host 和 base path
+swaggo -d . -host localhost:8080 -basePath /api/v1
 
 # 安靜模式（CI/CD）
 swaggo -d . -q
 ```
+
+### 入口模式 (-e)
+
+當指定 `-entry` 時，swaggo 只解析從入口檔案直接或間接 import 的 package。這對於 monorepo 或多服務專案特別有用：
+
+```bash
+project/
+├── cmd/
+│   ├── api/main.go      # API 服務入口
+│   └── admin/main.go    # Admin 服務入口
+├── internal/
+│   ├── api/             # API handler
+│   ├── admin/           # Admin handler
+│   └── shared/          # 共用程式碼
+└── go.mod
+
+# 只產生 API 服務的文檔
+swaggo -d . -e cmd/api/main.go -o docs/api
+
+# 只產生 Admin 服務的文檔
+swaggo -d . -e cmd/admin/main.go -o docs/admin
+```
+
+不指定 `-entry` 時，會掃描目錄下所有 `.go` 檔案。
 
 ## 運作原理
 

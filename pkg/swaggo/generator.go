@@ -99,6 +99,14 @@ func (g *Generator) ParseSource(paths ...string) error {
 	return g.parser.Analyze()
 }
 
+// ParseFromEntry 從指定入口檔案解析，只追蹤被 import 的 package
+func (g *Generator) ParseFromEntry(entryFile string, projectRoot string) error {
+	if err := g.parser.ParseFromEntry(entryFile, projectRoot); err != nil {
+		return err
+	}
+	return g.parser.Analyze()
+}
+
 func (g *Generator) Generate() (*OpenAPI, error) {
 	spec := &OpenAPI{
 		OpenAPI: "3.0.3",

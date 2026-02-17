@@ -51,50 +51,73 @@ const swaggerUIHTML = `<!DOCTYPE html>
 
 func main() {
 	var (
-		dir          string
-		output       string
-		format       string
-		title        string
-		description  string
-		apiVersion   string
-		host         string
-		basePath     string
-		showVersion  bool
-		quiet        bool
-		generateUI   bool
-		exclude      string
-		parseVendor  bool
-		parseDeps    bool
+		dir         string
+		entry       string
+		output      string
+		format      string
+		title       string
+		description string
+		apiVersion  string
+		host        string
+		basePath    string
+		showVersion bool
+		quiet       bool
+		generateUI  bool
+		exclude     string
+		parseVendor bool
+		parseDeps   bool
 	)
 
-	flag.StringVar(&dir, "dir", ".", "directory to parse")
-	flag.StringVar(&dir, "d", ".", "directory to parse (shorthand)")
-	flag.StringVar(&output, "output", "docs", "output directory")
-	flag.StringVar(&output, "o", "docs", "output directory (shorthand)")
-	flag.StringVar(&format, "format", "both", "output format: json, yaml, both")
+	flag.StringVar(&dir, "dir", ".", "Project root directory")
+	flag.StringVar(&dir, "d", ".", "Project root directory (shorthand)")
+	flag.StringVar(&entry, "entry", "", "Entry file (e.g. cmd/api/main.go). Only parses imported packages")
+	flag.StringVar(&entry, "e", "", "Entry file (shorthand)")
+	flag.StringVar(&output, "output", "docs", "Output directory")
+	flag.StringVar(&output, "o", "docs", "Output directory (shorthand)")
+	flag.StringVar(&format, "format", "both", "Output format: json, yaml, both")
 	flag.StringVar(&title, "title", "API Documentation", "API title")
 	flag.StringVar(&title, "t", "API Documentation", "API title (shorthand)")
 	flag.StringVar(&description, "desc", "", "API description")
 	flag.StringVar(&apiVersion, "version", "1.0.0", "API version")
 	flag.StringVar(&host, "host", "", "API host (e.g. localhost:8080)")
 	flag.StringVar(&basePath, "basePath", "/", "API base path")
-	flag.BoolVar(&showVersion, "v", false, "show version")
-	flag.BoolVar(&quiet, "q", false, "quiet mode, only output errors")
-	flag.BoolVar(&quiet, "quiet", false, "quiet mode, only output errors")
-	flag.BoolVar(&generateUI, "ui", true, "generate Swagger UI HTML")
-	flag.StringVar(&exclude, "exclude", "", "directories to exclude (comma separated)")
-	flag.BoolVar(&parseVendor, "parseVendor", false, "parse vendor directory")
-	flag.BoolVar(&parseDeps, "parseDependency", false, "parse external dependencies")
+	flag.BoolVar(&showVersion, "v", false, "Show version")
+	flag.BoolVar(&quiet, "q", false, "Quiet mode")
+	flag.BoolVar(&quiet, "quiet", false, "Quiet mode")
+	flag.BoolVar(&generateUI, "ui", true, "Generate Swagger UI HTML")
+	flag.StringVar(&exclude, "exclude", "", "Directories to exclude (comma separated)")
+	flag.StringVar(&exclude, "x", "", "Directories to exclude (shorthand)")
+	flag.BoolVar(&parseVendor, "parseVendor", false, "Parse vendor directory")
+	flag.BoolVar(&parseDeps, "parseDependency", false, "Parse external dependencies")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "swaggo - Generate OpenAPI docs from Gin handlers\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  swaggo [flags]\n\n")
-		fmt.Fprintf(os.Stderr, "Examples:\n")
-		fmt.Fprintf(os.Stderr, "  swaggo -dir ./cmd/server -title \"My API\"\n")
-		fmt.Fprintf(os.Stderr, "  swaggo -d . -o ./api/docs -format json\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintf(os.Stderr, `swaggo - Generate OpenAPI docs from Gin handlers
+
+Usage:
+  swaggo [flags]
+
+Examples:
+  # Scan entire project
+  swaggo -d ./myproject -t "My API"
+
+  # Scan from specific entry (recommended for monorepo/microservices)
+  swaggo -d . -e cmd/api/main.go -o docs/api
+  swaggo -d . -e cmd/admin/main.go -o docs/admin
+
+  # Exclude directories
+  swaggo -d . -x test,mock,scripts
+
+Flags:
+`)
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
+Entry Mode (-e):
+  When -entry is specified, swaggo only parses packages that are
+  imported (directly or transitively) from the entry file.
+  This is useful for monorepos with multiple services.
+
+  Without -entry, swaggo scans all .go files in the directory.
+`)
 	}
 
 	flag.Parse()
@@ -137,11 +160,29 @@ func main() {
 	gen.SetParseDependency(parseDeps)
 
 	absDir, _ := filepath.Abs(dir)
-	log("Parsing: %s\n", absDir)
 
-	if err := gen.ParseSource(dir); err != nil {
-		fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
-		os.Exit(1)
+	if entry != "" {
+		// Entry mode: 從入口追蹤 import
+		entryPath := filepath.Join(absDir, entry)
+		if _, err := os.Stat(entryPath); os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Entry file not found: %s\n", entryPath)
+			os.Exit(1)
+		}
+		log("Entry: %s\n", entry)
+		log("Root:  %s\n", absDir)
+
+		if err := gen.ParseFromEntry(entryPath, absDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Full scan mode
+		log("Parsing: %s\n", absDir)
+
+		if err := gen.ParseSource(dir); err != nil {
+			fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	stats := gen.Stats()

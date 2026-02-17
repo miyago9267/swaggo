@@ -73,7 +73,8 @@ Endpoints:
 swaggo [flags]
 
 Flags:
-  -d, -dir string           Directory to parse (default ".")
+  -d, -dir string           Project root directory (default ".")
+  -e, -entry string         Entry file (e.g. cmd/api/main.go). Only parses imported packages
   -o, -output string        Output directory (default "docs")
   -t, -title string         API title (default "API Documentation")
   -desc string              API description
@@ -82,7 +83,7 @@ Flags:
   -basePath string          API base path (default "/")
   -format string            Output format: json, yaml, both (default "both")
   -ui                       Generate Swagger UI HTML (default true)
-  -exclude string           Directories to exclude (comma separated)
+  -x, -exclude string       Directories to exclude (comma separated)
   -parseVendor              Parse vendor directory (default false)
   -parseDependency          Parse external dependencies (default false)
   -q, -quiet                Quiet mode, only output errors
@@ -92,21 +93,46 @@ Flags:
 ### Examples
 
 ```bash
-# Basic usage
-swaggo -dir ./cmd/server -title "My API"
+# Basic usage - scan entire project
+swaggo -d ./myproject -t "My API"
 
-# Custom output directory
-swaggo -d . -o ./api/docs -format json
-
-# With host and base path
-swaggo -dir . -host localhost:8080 -basePath /api/v1
+# Scan from specific entry (recommended for monorepo/microservices)
+swaggo -d . -e cmd/api/main.go -o docs/api
+swaggo -d . -e cmd/admin/main.go -o docs/admin
 
 # Exclude directories
-swaggo -dir . -exclude "test,mock,internal"
+swaggo -d . -x test,mock,scripts
+
+# With host and base path
+swaggo -d . -host localhost:8080 -basePath /api/v1
 
 # Quiet mode (CI/CD)
 swaggo -d . -q
 ```
+
+### Entry Mode (-e)
+
+When `-entry` is specified, swaggo only parses packages that are imported (directly or transitively) from the entry file. This is particularly useful for monorepos or multi-service projects:
+
+```bash
+project/
+├── cmd/
+│   ├── api/main.go      # API service entry
+│   └── admin/main.go    # Admin service entry
+├── internal/
+│   ├── api/             # API handlers
+│   ├── admin/           # Admin handlers
+│   └── shared/          # Shared code
+└── go.mod
+
+# Generate docs for API service only
+swaggo -d . -e cmd/api/main.go -o docs/api
+
+# Generate docs for Admin service only
+swaggo -d . -e cmd/admin/main.go -o docs/admin
+```
+
+Without `-entry`, all `.go` files in the directory will be scanned.
 
 ## How It Works
 
