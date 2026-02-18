@@ -253,15 +253,28 @@ import (
 )
 
 func main() {
+    // Basic usage - scan entire project
     gen := swaggo.New().
         WithTitle("My API").
         WithDescription("API description").
         WithVersion("1.0.0").
         WithHost("localhost:8080").
-        WithBasePath("/api/v1")
+        WithBasePath("/api/v1").
+        WithProjectRoot(".")
 
     // Parse source code
-    if err := gen.ParseSource("./internal/api"); err != nil {
+    if err := gen.Parse(); err != nil {
+        panic(err)
+    }
+
+    // Or specify entry file (microservices/monorepo)
+    gen2 := swaggo.New().
+        WithTitle("API Service").
+        WithProjectRoot(".").
+        WithEntry("cmd/api/main.go").   // Only parse packages imported by this entry
+        WithExclude("test", "mock")
+
+    if err := gen2.Parse(); err != nil {
         panic(err)
     }
 

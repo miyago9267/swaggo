@@ -68,55 +68,60 @@ func main() {
 		parseDeps   bool
 	)
 
-	flag.StringVar(&dir, "dir", ".", "Project root directory")
-	flag.StringVar(&dir, "d", ".", "Project root directory (shorthand)")
-	flag.StringVar(&entry, "entry", "", "Entry file (e.g. cmd/api/main.go). Only parses imported packages")
-	flag.StringVar(&entry, "e", "", "Entry file (shorthand)")
-	flag.StringVar(&output, "output", "docs", "Output directory")
-	flag.StringVar(&output, "o", "docs", "Output directory (shorthand)")
-	flag.StringVar(&format, "format", "both", "Output format: json, yaml, both")
-	flag.StringVar(&title, "title", "API Documentation", "API title")
-	flag.StringVar(&title, "t", "API Documentation", "API title (shorthand)")
-	flag.StringVar(&description, "desc", "", "API description")
-	flag.StringVar(&apiVersion, "version", "1.0.0", "API version")
-	flag.StringVar(&host, "host", "", "API host (e.g. localhost:8080)")
-	flag.StringVar(&basePath, "basePath", "/", "API base path")
-	flag.BoolVar(&showVersion, "v", false, "Show version")
-	flag.BoolVar(&quiet, "q", false, "Quiet mode")
-	flag.BoolVar(&quiet, "quiet", false, "Quiet mode")
-	flag.BoolVar(&generateUI, "ui", true, "Generate Swagger UI HTML")
-	flag.StringVar(&exclude, "exclude", "", "Directories to exclude (comma separated)")
-	flag.StringVar(&exclude, "x", "", "Directories to exclude (shorthand)")
-	flag.BoolVar(&parseVendor, "parseVendor", false, "Parse vendor directory")
-	flag.BoolVar(&parseDeps, "parseDependency", false, "Parse external dependencies")
+	flag.StringVar(&dir, "dir", ".", "")
+	flag.StringVar(&dir, "d", ".", "")
+	flag.StringVar(&entry, "entry", "", "")
+	flag.StringVar(&entry, "e", "", "")
+	flag.StringVar(&output, "output", "docs", "")
+	flag.StringVar(&output, "o", "docs", "")
+	flag.StringVar(&format, "format", "both", "")
+	flag.StringVar(&title, "title", "API Documentation", "")
+	flag.StringVar(&title, "t", "API Documentation", "")
+	flag.StringVar(&description, "desc", "", "")
+	flag.StringVar(&apiVersion, "api-version", "1.0.0", "")
+	flag.StringVar(&host, "host", "", "")
+	flag.StringVar(&basePath, "base-path", "/", "")
+	flag.BoolVar(&showVersion, "version", false, "")
+	flag.BoolVar(&showVersion, "v", false, "")
+	flag.BoolVar(&quiet, "quiet", false, "")
+	flag.BoolVar(&quiet, "q", false, "")
+	flag.BoolVar(&generateUI, "ui", true, "")
+	flag.StringVar(&exclude, "exclude", "", "")
+	flag.StringVar(&exclude, "x", "", "")
+	flag.BoolVar(&parseVendor, "parse-vendor", false, "")
+	flag.BoolVar(&parseDeps, "parse-deps", false, "")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, `swaggo - Generate OpenAPI docs from Gin handlers
+		fmt.Fprint(os.Stderr, `swaggo - Generate OpenAPI docs from Gin handlers
 
 Usage:
   swaggo [flags]
 
 Examples:
-  # Scan entire project
   swaggo -d ./myproject -t "My API"
-
-  # Scan from specific entry (recommended for monorepo/microservices)
   swaggo -d . -e cmd/api/main.go -o docs/api
-  swaggo -d . -e cmd/admin/main.go -o docs/admin
-
-  # Exclude directories
-  swaggo -d . -x test,mock,scripts
+  swaggo -d . -x test,mock
 
 Flags:
-`)
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, `
-Entry Mode (-e):
-  When -entry is specified, swaggo only parses packages that are
-  imported (directly or transitively) from the entry file.
-  This is useful for monorepos with multiple services.
+  -d, --dir <path>          Project root directory (default ".")
+  -e, --entry <file>        Entry file for import tracing (e.g. cmd/api/main.go)
+  -o, --output <path>       Output directory (default "docs")
+  -t, --title <string>      API title (default "API Documentation")
+      --desc <string>       API description
+      --api-version <ver>   API version (default "1.0.0")
+      --host <host>         API host (e.g. localhost:8080)
+      --base-path <path>    API base path (default "/")
+      --format <fmt>        Output format: json, yaml, both (default "both")
+      --ui                  Generate Swagger UI HTML (default true)
+  -x, --exclude <dirs>      Directories to exclude (comma separated)
+      --parse-vendor        Parse vendor directory
+      --parse-deps          Parse external dependencies
+  -q, --quiet               Quiet mode
+  -v, --version             Show version
 
-  Without -entry, swaggo scans all .go files in the directory.
+Entry Mode:
+  When --entry is specified, only packages imported from that entry file
+  are parsed. Useful for monorepos with multiple services.
 `)
 	}
 
@@ -162,7 +167,6 @@ Entry Mode (-e):
 	absDir, _ := filepath.Abs(dir)
 
 	if entry != "" {
-		// Entry mode: 從入口追蹤 import
 		entryPath := filepath.Join(absDir, entry)
 		if _, err := os.Stat(entryPath); os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "Entry file not found: %s\n", entryPath)
@@ -176,7 +180,6 @@ Entry Mode (-e):
 			os.Exit(1)
 		}
 	} else {
-		// Full scan mode
 		log("Parsing: %s\n", absDir)
 
 		if err := gen.ParseSource(dir); err != nil {

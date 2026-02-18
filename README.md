@@ -253,15 +253,28 @@ import (
 )
 
 func main() {
+    // 基本用法 - 掃描整個專案
     gen := swaggo.New().
         WithTitle("My API").
         WithDescription("API description").
         WithVersion("1.0.0").
         WithHost("localhost:8080").
-        WithBasePath("/api/v1")
+        WithBasePath("/api/v1").
+        WithProjectRoot(".")
 
     // 解析原始碼
-    if err := gen.ParseSource("./internal/api"); err != nil {
+    if err := gen.Parse(); err != nil {
+        panic(err)
+    }
+
+    // 或指定入口檔案（微服務/monorepo）
+    gen2 := swaggo.New().
+        WithTitle("API Service").
+        WithProjectRoot(".").
+        WithEntry("cmd/api/main.go").   // 只解析這個入口 import 的 package
+        WithExclude("test", "mock")
+
+    if err := gen2.Parse(); err != nil {
         panic(err)
     }
 

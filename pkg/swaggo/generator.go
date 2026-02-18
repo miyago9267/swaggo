@@ -1,6 +1,7 @@
 package swaggo
 
 import (
+	"path/filepath"
 	"strings"
 )
 
@@ -13,6 +14,8 @@ type Generator struct {
 	Host        string
 	Schemes     []string
 
+	projectRoot     string
+	entryFile       string
 	excludeDirs     []string
 	parseVendor     bool
 	parseDependency bool
@@ -72,6 +75,18 @@ func (g *Generator) WithExclude(dirs ...string) *Generator {
 	return g
 }
 
+// WithEntry 設定入口檔案，只解析從入口 import 的 package
+func (g *Generator) WithEntry(entryFile string) *Generator {
+	g.entryFile = entryFile
+	return g
+}
+
+// WithProjectRoot 設定專案根目錄（搭配 WithEntry 使用）
+func (g *Generator) WithProjectRoot(root string) *Generator {
+	g.projectRoot = root
+	return g
+}
+
 func (g *Generator) SetParseVendor(v bool) {
 	g.parseVendor = v
 	g.parser.parseVendor = v
@@ -88,6 +103,28 @@ func (g *Generator) Stats() Stats {
 		Handlers: len(g.parser.Handlers),
 		Types:    len(g.parser.Types),
 	}
+}
+
+// Parse 解析原始碼（自動判斷全掃或入口模式）
+func (g *Generator) Parse() error {
+	if g.entryFile != "" {
+		root := g.projectRoot
+		if root == "" {
+			root = "."
+		}
+		absRoot, _ := filepath.Abs(root)
+		entryPath := g.entryFile
+		if !filepath.IsAbs(entryPath) {
+			entryPath = filepath.Join(absRoot, entryPath)
+		}
+		return g.ParseFromEntry(entryPath, absRoot)
+	}
+
+	root := g.projectRoot
+	if root == "" {
+		root = "."
+	}
+	return g.ParseSource(root)
 }
 
 func (g *Generator) ParseSource(paths ...string) error {
