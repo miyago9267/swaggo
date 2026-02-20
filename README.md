@@ -1,4 +1,4 @@
-# swaggo
+# Swaggo
 
 ![swaggo](https://raw.githubusercontent.com/miyago9267/swaggo/main/assets/swaggo.svg)
 
@@ -9,24 +9,32 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/release/miyago9267/swaggo.svg?style=flat-square)](https://github.com/miyago9267/swaggo/releases)
 
+> **受夠了寫一堆 `@Summary`、`@Param`、`@Success` 註解了嗎？**
+>
+> swaggo 來了！直接接解析你的程式碼，自動產生 API 文檔。零註解，零設定。
+
 從 [Gin](https://github.com/gin-gonic/gin) handler 自動產生 [OpenAPI 3.0](https://swagger.io/specification/) 文檔，透過 Go AST 解析，不需要寫任何註解。
 
 ## 目錄
 
-- [快速開始](#快速開始)
-- [CLI 選項](#cli-選項)
-- [運作原理](#運作原理)
-  - [路由偵測](#路由偵測)
-  - [參數偵測](#參數偵測)
-  - [Request Body 偵測](#request-body-偵測)
-  - [Response 偵測](#response-偵測)
-  - [Struct Tag 支援](#struct-tag-支援)
-- [註解慣例](#註解慣例)
-- [程式碼使用](#程式碼使用)
-- [Swagger UI 整合](#swagger-ui-整合)
-- [限制](#限制)
-- [範例](docs/EXAMPLE.md)
-- [License](#license)
+- [Swaggo](#swaggo)
+  - [目錄](#目錄)
+  - [快速開始](#快速開始)
+  - [CLI 選項](#cli-選項)
+    - [範例](#範例)
+    - [入口模式 (-e)](#入口模式--e)
+  - [運作原理](#運作原理)
+    - [路由偵測](#路由偵測)
+    - [參數偵測](#參數偵測)
+    - [Request Body 偵測](#request-body-偵測)
+    - [Response 偵測](#response-偵測)
+    - [Struct Tag 支援](#struct-tag-支援)
+  - [註解慣例](#註解慣例)
+  - [程式碼使用](#程式碼使用)
+  - [Swagger UI 整合](#swagger-ui-整合)
+  - [限制](#限制)
+  - [與 swaggo/swag 的比較](#與-swaggoswag-的比較)
+  - [License](#license)
 
 ## 快速開始
 

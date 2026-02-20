@@ -1,4 +1,4 @@
-# swaggo
+# Swaggo
 
 ![swaggo](https://raw.githubusercontent.com/miyago9267/swaggo/main/assets/swaggo.svg)
 
@@ -9,24 +9,32 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/release/miyago9267/swaggo.svg?style=flat-square)](https://github.com/miyago9267/swaggo/releases)
 
+> **Tired of writing `@Summary`, `@Param`, `@Success` annotations everywhere?**
+>
+> swaggo is coming! Parses your code directly and generates API docs automatically. Zero annotations. Zero config.
+
 Automatically generate [OpenAPI 3.0](https://swagger.io/specification/) documentation from [Gin](https://github.com/gin-gonic/gin) handlers using Go AST parsing. No annotations required.
 
 ## Contents
 
-- [Getting Started](#getting-started)
-- [CLI Options](#cli-options)
-- [How It Works](#how-it-works)
-  - [Route Detection](#route-detection)
-  - [Parameter Detection](#parameter-detection)
-  - [Request Body Detection](#request-body-detection)
-  - [Response Detection](#response-detection)
-  - [Struct Tag Support](#struct-tag-support)
-- [Comment Convention](#comment-convention)
-- [Programmatic Usage](#programmatic-usage)
-- [Swagger UI Integration](#swagger-ui-integration)
-- [Limitations](#limitations)
-- [Examples](EXAMPLE.md)
-- [License](#license)
+- [Swaggo](#swaggo)
+  - [Contents](#contents)
+  - [Getting Started](#getting-started)
+  - [CLI Options](#cli-options)
+    - [Examples](#examples)
+    - [Entry Mode (-e)](#entry-mode--e)
+  - [How It Works](#how-it-works)
+    - [Route Detection](#route-detection)
+    - [Parameter Detection](#parameter-detection)
+    - [Request Body Detection](#request-body-detection)
+    - [Response Detection](#response-detection)
+    - [Struct Tag Support](#struct-tag-support)
+  - [Comment Convention](#comment-convention)
+  - [Programmatic Usage](#programmatic-usage)
+  - [Swagger UI Integration](#swagger-ui-integration)
+  - [Limitations](#limitations)
+  - [Comparison with swaggo/swag](#comparison-with-swaggoswag)
+  - [License](#license)
 
 ## Getting Started
 
