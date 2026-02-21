@@ -1,4 +1,6 @@
 # Binaries
+swaggo
+main
 *.exe
 *.exe~
 *.dll
