@@ -11,7 +11,7 @@
 
 > **受夠了寫一堆 `@Summary`、`@Param`、`@Success` 註解了嗎？**
 >
-> swaggo 來了！直接接解析你的程式碼，自動產生 API 文檔。零註解，零設定。
+> swaggo 來了！直接接解析你的程式碼，自動產生 API 文檔。
 
 從 [Gin](https://github.com/gin-gonic/gin) handler 自動產生 [OpenAPI 3.0](https://swagger.io/specification/) 文檔，透過 Go AST 解析，不需要寫任何註解。
 

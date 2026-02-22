@@ -11,7 +11,7 @@
 
 > **Tired of writing `@Summary`, `@Param`, `@Success` annotations everywhere?**
 >
-> swaggo is coming! Parses your code directly and generates API docs automatically. Zero annotations. Zero config.
+> swaggo is coming! Parses your code directly and generates API docs automatically. Zero extra annotations. Zero extra config.
 
 Automatically generate [OpenAPI 3.0](https://swagger.io/specification/) documentation from [Gin](https://github.com/gin-gonic/gin) handlers using Go AST parsing. No annotations required.
 
