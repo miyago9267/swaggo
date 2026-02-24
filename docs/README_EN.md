@@ -328,7 +328,8 @@ Some Go patterns cannot be fully analyzed at compile time:
 | `interface{}` / `any` fields | Cannot determine actual type at compile time |
 | `gin.H{}` responses | Dynamic map content cannot be statically analyzed |
 | Generic types | Limited support for Go generics |
-| Dynamic routes | Routes registered at runtime cannot be detected |
+| Closure handlers | Factory functions returning `gin.HandlerFunc` cannot be traced |
+| Cross-file group prefix | In `RegisterRoutes(rg *gin.RouterGroup)` patterns, the external group prefix cannot be tracked |
 
 ## Comparison with swaggo/swag
 

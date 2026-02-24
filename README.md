@@ -328,6 +328,9 @@ r.Static("/swagger", "./docs")
 | `interface{}` / `any` 欄位 | 編譯時期無法確定實際型別 |
 | `gin.H{}` 回應 | 動態 map 內容無法靜態分析 |
 | 泛型型別 | Go 泛型支援有限 |
+| 閉包 handler | 工廠函數回傳的 `gin.HandlerFunc` 無法穿透解析 |
+| 跨檔案 Group 前綴 | `RegisterRoutes(rg *gin.RouterGroup)` 模式中，外部傳入的 group prefix 無法追蹤 |
+| 泛型型別 | Go 泛型支援有限 |
 | 動態路由 | 執行時期註冊的路由無法偵測 |
 
 ## 與 swaggo/swag 的比較

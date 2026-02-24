@@ -221,7 +221,7 @@ func (g *Generator) routeToOperation(route *RouteInfo) *Operation {
 	if route.Handler != nil {
 		op.Summary = route.Handler.Summary
 		op.Description = route.Handler.Description
-		op.OperationID = route.Handler.Name
+		op.OperationID = g.generateOperationID(route.Handler)
 
 		for _, param := range route.Handler.Parameters {
 			op.Parameters = append(op.Parameters, g.paramToOpenAPI(param))
@@ -275,6 +275,13 @@ func (g *Generator) paramToOpenAPI(param *ParameterInfo) Parameter {
 	}
 
 	return p
+}
+
+func (g *Generator) generateOperationID(handler *HandlerInfo) string {
+	if handler.Receiver != "" {
+		return handler.Receiver + "_" + handler.Name
+	}
+	return handler.Name
 }
 
 func (g *Generator) responseToOpenAPI(resp *ResponseInfo) Response {

@@ -81,7 +81,6 @@ func main() {
 	flag.StringVar(&apiVersion, "api-version", "1.0.0", "")
 	flag.StringVar(&host, "host", "", "")
 	flag.StringVar(&basePath, "base-path", "/", "")
-	flag.BoolVar(&showVersion, "version", false, "")
 	flag.BoolVar(&showVersion, "v", false, "")
 	flag.BoolVar(&quiet, "quiet", false, "")
 	flag.BoolVar(&quiet, "q", false, "")
@@ -117,7 +116,7 @@ Flags:
       --parse-vendor        Parse vendor directory
       --parse-deps          Parse external dependencies
   -q, --quiet               Quiet mode
-  -v, --version             Show version
+  -v                        Show version
 
 Entry Mode:
   When --entry is specified, only packages imported from that entry file
