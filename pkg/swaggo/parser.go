@@ -21,6 +21,7 @@ type Parser struct {
 	Types    map[string]*TypeInfo
 
 	controllerInstances map[string]string
+	routeRegistrars     map[string]*RouteRegistrar // 記錄接受 RouterGroup 參數的函數
 	excludeDirs         []string
 	parseVendor         bool
 	parseDependency     bool
@@ -97,6 +98,7 @@ func NewParser() *Parser {
 		Handlers:            make(map[string]*HandlerInfo),
 		Types:               make(map[string]*TypeInfo),
 		controllerInstances: make(map[string]string),
+		routeRegistrars:     make(map[string]*RouteRegistrar),
 	}
 }
 
@@ -153,11 +155,26 @@ func (p *Parser) Analyze() error {
 	for _, file := range p.files {
 		p.extractHandlers(file)
 	}
+
+	// P3 修復：收集並註冊閉包工廠函數的 handler
+	closureFactories := p.collectClosureFactories()
+	p.registerClosureHandlers(closureFactories)
+
 	for _, file := range p.files {
 		p.extractControllerInstances(file)
 	}
+
+	// 先收集 route registrars，這樣 extractRoutes 可以跳過這些函數
+	p.routeRegistrars = p.collectRouteRegistrars()
+
 	for _, file := range p.files {
 		p.extractRoutes(file)
+	}
+
+	// P1 修復：追蹤跨檔案的 RouterGroup 傳遞
+	callSites := p.findCallSites(p.routeRegistrars)
+	for _, cs := range callSites {
+		p.extractRoutesWithPrefix(cs.Registrar, cs.GroupPrefix)
 	}
 
 	for _, route := range p.Routes {

@@ -169,6 +169,24 @@ func (p *Parser) extractRoutes(file *ast.File) {
 	pkgName := file.Name.Name
 	groupPrefixes := make(map[string]string)
 
+	// 收集這個檔案中的 registrar 函數位置，用於跳過
+	registrarRanges := make(map[token.Pos]token.Pos) // start -> end
+	for _, reg := range p.routeRegistrars {
+		if reg.File == file && reg.FuncDecl != nil && reg.FuncDecl.Body != nil {
+			registrarRanges[reg.FuncDecl.Body.Pos()] = reg.FuncDecl.Body.End()
+		}
+	}
+
+	// 檢查節點是否在 registrar 函數內
+	isInRegistrar := func(pos token.Pos) bool {
+		for start, end := range registrarRanges {
+			if pos >= start && pos <= end {
+				return true
+			}
+		}
+		return false
+	}
+
 	p.extractDynamicRoutes(file, pkgName)
 
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -214,6 +232,11 @@ func (p *Parser) extractRoutes(file *ast.File) {
 		}
 
 		if !httpMethods[method] {
+			return true
+		}
+
+		// 跳過 registrar 函數內的路由（會由 extractRoutesWithPrefix 處理）
+		if isInRegistrar(call.Pos()) {
 			return true
 		}
 
@@ -535,8 +558,16 @@ func (p *Parser) resolveHandlerName(expr ast.Expr, currentPkg string) string {
 			return varName + "." + methodName
 		}
 	case *ast.CallExpr:
-		if sel, ok := h.Fun.(*ast.SelectorExpr); ok {
-			return p.resolveHandlerName(sel, currentPkg)
+		// 工廠函數呼叫: MakeHandler() 或 pkg.MakeHandler()
+		switch fn := h.Fun.(type) {
+		case *ast.Ident:
+			// 同 package 呼叫: MakeGreetHandler("Hello")
+			return currentPkg + "." + fn.Name
+		case *ast.SelectorExpr:
+			// 跨 package 呼叫: closure.MakeGreetHandler("Hello")
+			if pkg, ok := fn.X.(*ast.Ident); ok {
+				return pkg.Name + "." + fn.Sel.Name
+			}
 		}
 	}
 	return ""
