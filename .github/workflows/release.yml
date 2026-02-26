@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+
+          # Linux
+          GOOS=linux GOARCH=amd64 go build -o dist/swaggo-linux-amd64 ./cmd/swaggo
+          GOOS=linux GOARCH=arm64 go build -o dist/swaggo-linux-arm64 ./cmd/swaggo
+
+          # macOS
+          GOOS=darwin GOARCH=amd64 go build -o dist/swaggo-darwin-amd64 ./cmd/swaggo
+          GOOS=darwin GOARCH=arm64 go build -o dist/swaggo-darwin-arm64 ./cmd/swaggo
+
+          # Windows
+          GOOS=windows GOARCH=amd64 go build -o dist/swaggo-windows-amd64.exe ./cmd/swaggo
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            # First release - get all commits
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          else
+            # Get commits since previous tag
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
+          fi
+
+          # Write to file for the release body
+          echo "## What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "$CHANGELOG" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> CHANGELOG.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          files: |
+            dist/swaggo-linux-amd64
+            dist/swaggo-linux-arm64
+            dist/swaggo-darwin-amd64
+            dist/swaggo-darwin-arm64
+            dist/swaggo-windows-amd64.exe
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
