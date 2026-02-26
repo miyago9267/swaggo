@@ -11,7 +11,7 @@ type RouteRegistrar struct {
 	Name      string
 	FullName  string
 	ParamName string
-	ParamType string // "RouterGroup" or "Engine"
+	ParamType string
 	File      *ast.File
 	FuncDecl  *ast.FuncDecl
 }
@@ -106,7 +106,6 @@ func (p *Parser) findCallSites(registrars map[string]*RouteRegistrar) []CallSite
 		pkgName := file.Name.Name
 		groupPrefixes := make(map[string]string)
 
-		// 先收集這個檔案的 group prefixes
 		ast.Inspect(file, func(n ast.Node) bool {
 			if assign, ok := n.(*ast.AssignStmt); ok {
 				for i, rhs := range assign.Rhs {
@@ -132,7 +131,6 @@ func (p *Parser) findCallSites(registrars map[string]*RouteRegistrar) []CallSite
 			return true
 		})
 
-		// 找呼叫點
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -144,38 +142,30 @@ func (p *Parser) findCallSites(registrars map[string]*RouteRegistrar) []CallSite
 
 			switch fn := call.Fun.(type) {
 			case *ast.Ident:
-				// 同 package 呼叫: RegisterRoutes(api)
 				funcName = pkgName + "." + fn.Name
 				if len(call.Args) > 0 {
 					groupArg = call.Args[0]
 				}
 
 			case *ast.SelectorExpr:
-				// 跨 package 呼叫: taskdelivery.RegisterRoutes(api)
 				if ident, ok := fn.X.(*ast.Ident); ok {
-					// 可能是 package.Function 或 instance.Method
 					funcName = ident.Name + "." + fn.Sel.Name
 					if len(call.Args) > 0 {
 						groupArg = call.Args[0]
 					}
 				}
-
-				// 也可能是 method call: handler.RegisterRoutes(api)
-				// 需要解析 receiver 的型別
 			}
 
 			if funcName == "" {
 				return true
 			}
 
-			// 匹配 registrar（需要處理 package alias）
 			var matchedRegistrar *RouteRegistrar
 			for fullName, reg := range registrars {
 				if fullName == funcName || strings.HasSuffix(fullName, "."+p.getSimpleName(funcName)) {
 					matchedRegistrar = reg
 					break
 				}
-				// 也嘗試用簡單名稱匹配
 				if reg.Name == p.getSimpleName(funcName) {
 					matchedRegistrar = reg
 					break
@@ -186,7 +176,6 @@ func (p *Parser) findCallSites(registrars map[string]*RouteRegistrar) []CallSite
 				return true
 			}
 
-			// 取得傳入的 group prefix
 			prefix := ""
 			if groupArg != nil {
 				if ident, ok := groupArg.(*ast.Ident); ok {
@@ -215,13 +204,22 @@ func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix s
 	pkgName := registrar.Package
 	groupPrefixes := make(map[string]string)
 
-	// 參數名稱 → basePrefix
 	if registrar.ParamName != "" {
 		groupPrefixes[registrar.ParamName] = basePrefix
 	}
 
+	if registrar.FuncDecl.Recv != nil && len(registrar.FuncDecl.Recv.List) > 0 {
+		recv := registrar.FuncDecl.Recv.List[0]
+		if len(recv.Names) > 0 {
+			recvVarName := recv.Names[0].Name
+			recvType := p.extractReceiverType(recv.Type)
+			if recvType != "" {
+				p.controllerInstances[recvVarName] = pkgName + "." + recvType
+			}
+		}
+	}
+
 	ast.Inspect(registrar.FuncDecl.Body, func(n ast.Node) bool {
-		// 處理 group 建立: tasks := rg.Group("/tasks")
 		if assign, ok := n.(*ast.AssignStmt); ok {
 			for i, rhs := range assign.Rhs {
 				if call, ok := rhs.(*ast.CallExpr); ok {
@@ -245,7 +243,6 @@ func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix s
 			return true
 		}
 
-		// 處理路由註冊
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -287,7 +284,6 @@ func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix s
 			return true
 		}
 
-		// 檢查是否已存在相同路由（避免重複）
 		for _, existing := range p.Routes {
 			if existing.Method == method && existing.Path == fullPath {
 				return true
