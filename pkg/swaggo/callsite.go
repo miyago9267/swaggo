@@ -27,48 +27,63 @@ func (p *Parser) collectRouteRegistrars() map[string]*RouteRegistrar {
 	registrars := make(map[string]*RouteRegistrar)
 
 	for _, file := range p.files {
-		pkgName := file.Name.Name
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			fn, ok := n.(*ast.FuncDecl)
-			if !ok || fn.Type.Params == nil {
-				return true
-			}
-
-			for _, param := range fn.Type.Params.List {
-				paramType := p.getGinParamType(param.Type)
-				if paramType == "" {
-					continue
-				}
-
-				paramName := ""
-				if len(param.Names) > 0 {
-					paramName = param.Names[0].Name
-				}
-
-				fullName := pkgName + "." + fn.Name.Name
-				if fn.Recv != nil && len(fn.Recv.List) > 0 {
-					recvType := p.extractReceiverType(fn.Recv.List[0].Type)
-					fullName = pkgName + "." + recvType + "." + fn.Name.Name
-				}
-
-				registrars[fullName] = &RouteRegistrar{
-					Package:   pkgName,
-					Name:      fn.Name.Name,
-					FullName:  fullName,
-					ParamName: paramName,
-					ParamType: paramType,
-					File:      file,
-					FuncDecl:  fn,
-				}
-				break
-			}
-
-			return true
-		})
+		p.collectRegistrarsFromFile(file, registrars)
 	}
 
 	return registrars
+}
+
+func (p *Parser) collectRegistrarsFromFile(file *ast.File, registrars map[string]*RouteRegistrar) {
+	pkgName := file.Name.Name
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Type.Params == nil {
+			return true
+		}
+
+		reg := p.tryBuildRegistrar(fn, pkgName, file)
+		if reg != nil {
+			registrars[reg.FullName] = reg
+		}
+
+		return true
+	})
+}
+
+func (p *Parser) tryBuildRegistrar(fn *ast.FuncDecl, pkgName string, file *ast.File) *RouteRegistrar {
+	for _, param := range fn.Type.Params.List {
+		paramType := p.getGinParamType(param.Type)
+		if paramType == "" {
+			continue
+		}
+
+		paramName := ""
+		if len(param.Names) > 0 {
+			paramName = param.Names[0].Name
+		}
+
+		fullName := p.buildFuncFullName(fn, pkgName)
+
+		return &RouteRegistrar{
+			Package:   pkgName,
+			Name:      fn.Name.Name,
+			FullName:  fullName,
+			ParamName: paramName,
+			ParamType: paramType,
+			File:      file,
+			FuncDecl:  fn,
+		}
+	}
+	return nil
+}
+
+func (p *Parser) buildFuncFullName(fn *ast.FuncDecl, pkgName string) string {
+	if fn.Recv != nil && len(fn.Recv.List) > 0 {
+		recvType := p.extractReceiverType(fn.Recv.List[0].Type)
+		return pkgName + "." + recvType + "." + fn.Name.Name
+	}
+	return pkgName + "." + fn.Name.Name
 }
 
 // getGinParamType 檢查參數是否為 *gin.RouterGroup 或 *gin.Engine
@@ -89,10 +104,8 @@ func (p *Parser) getGinParamType(expr ast.Expr) string {
 	}
 
 	switch sel.Sel.Name {
-	case "RouterGroup":
-		return "RouterGroup"
-	case "Engine":
-		return "Engine"
+	case "RouterGroup", "Engine":
+		return sel.Sel.Name
 	default:
 		return ""
 	}
@@ -103,96 +116,165 @@ func (p *Parser) findCallSites(registrars map[string]*RouteRegistrar) []CallSite
 	var callSites []CallSite
 
 	for _, file := range p.files {
-		pkgName := file.Name.Name
-		groupPrefixes := make(map[string]string)
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			if assign, ok := n.(*ast.AssignStmt); ok {
-				for i, rhs := range assign.Rhs {
-					if call, ok := rhs.(*ast.CallExpr); ok {
-						if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-							if sel.Sel.Name == "Group" && len(call.Args) > 0 {
-								if prefix := p.extractStringArg(call.Args[0]); prefix != "" {
-									parentPrefix := ""
-									if parentIdent, ok := sel.X.(*ast.Ident); ok {
-										parentPrefix = groupPrefixes[parentIdent.Name]
-									}
-									if i < len(assign.Lhs) {
-										if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
-											groupPrefixes[ident.Name] = parentPrefix + prefix
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			return true
-		})
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-
-			var funcName string
-			var groupArg ast.Expr
-
-			switch fn := call.Fun.(type) {
-			case *ast.Ident:
-				funcName = pkgName + "." + fn.Name
-				if len(call.Args) > 0 {
-					groupArg = call.Args[0]
-				}
-
-			case *ast.SelectorExpr:
-				if ident, ok := fn.X.(*ast.Ident); ok {
-					funcName = ident.Name + "." + fn.Sel.Name
-					if len(call.Args) > 0 {
-						groupArg = call.Args[0]
-					}
-				}
-			}
-
-			if funcName == "" {
-				return true
-			}
-
-			var matchedRegistrar *RouteRegistrar
-			for fullName, reg := range registrars {
-				if fullName == funcName || strings.HasSuffix(fullName, "."+p.getSimpleName(funcName)) {
-					matchedRegistrar = reg
-					break
-				}
-				if reg.Name == p.getSimpleName(funcName) {
-					matchedRegistrar = reg
-					break
-				}
-			}
-
-			if matchedRegistrar == nil {
-				return true
-			}
-
-			prefix := ""
-			if groupArg != nil {
-				if ident, ok := groupArg.(*ast.Ident); ok {
-					prefix = groupPrefixes[ident.Name]
-				}
-			}
-
-			callSites = append(callSites, CallSite{
-				Registrar:   matchedRegistrar,
-				GroupPrefix: prefix,
-			})
-
-			return true
-		})
+		sites := p.findCallSitesInFile(file, registrars)
+		callSites = append(callSites, sites...)
 	}
 
 	return callSites
+}
+
+func (p *Parser) findCallSitesInFile(file *ast.File, registrars map[string]*RouteRegistrar) []CallSite {
+	pkgName := file.Name.Name
+	groupPrefixes := p.collectGroupPrefixes(file)
+
+	var callSites []CallSite
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		site := p.tryBuildCallSite(call, pkgName, groupPrefixes, registrars)
+		if site != nil {
+			callSites = append(callSites, *site)
+		}
+
+		return true
+	})
+
+	return callSites
+}
+
+func (p *Parser) collectGroupPrefixes(file *ast.File) map[string]string {
+	prefixes := make(map[string]string)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+
+		for i, rhs := range assign.Rhs {
+			info := p.extractGroupCall(rhs)
+			if info == nil {
+				continue
+			}
+
+			parentPrefix := prefixes[info.parentVar]
+			varName := p.getAssignTarget(assign.Lhs, i)
+			if varName != "" {
+				prefixes[varName] = parentPrefix + info.prefix
+			}
+		}
+
+		return true
+	})
+
+	return prefixes
+}
+
+type groupCallInfo struct {
+	parentVar string
+	prefix    string
+}
+
+func (p *Parser) extractGroupCall(expr ast.Expr) *groupCallInfo {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return nil
+	}
+
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Group" || len(call.Args) == 0 {
+		return nil
+	}
+
+	prefix := p.extractStringArg(call.Args[0])
+	if prefix == "" {
+		return nil
+	}
+
+	parentVar := ""
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		parentVar = ident.Name
+	}
+
+	return &groupCallInfo{parentVar: parentVar, prefix: prefix}
+}
+
+func (p *Parser) getAssignTarget(lhs []ast.Expr, index int) string {
+	if index >= len(lhs) {
+		return ""
+	}
+	if ident, ok := lhs[index].(*ast.Ident); ok {
+		return ident.Name
+	}
+	return ""
+}
+
+func (p *Parser) tryBuildCallSite(call *ast.CallExpr, pkgName string, groupPrefixes map[string]string, registrars map[string]*RouteRegistrar) *CallSite {
+	funcName, groupArg := p.extractCallInfo(call, pkgName)
+	if funcName == "" {
+		return nil
+	}
+
+	reg := p.matchRegistrar(funcName, registrars)
+	if reg == nil {
+		return nil
+	}
+
+	prefix := p.resolveGroupPrefix(groupArg, groupPrefixes)
+
+	return &CallSite{
+		Registrar:   reg,
+		GroupPrefix: prefix,
+	}
+}
+
+func (p *Parser) extractCallInfo(call *ast.CallExpr, pkgName string) (funcName string, groupArg ast.Expr) {
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		funcName = pkgName + "." + fn.Name
+	case *ast.SelectorExpr:
+		if ident, ok := fn.X.(*ast.Ident); ok {
+			funcName = ident.Name + "." + fn.Sel.Name
+		}
+	}
+
+	if len(call.Args) > 0 {
+		groupArg = call.Args[0]
+	}
+
+	return funcName, groupArg
+}
+
+func (p *Parser) matchRegistrar(funcName string, registrars map[string]*RouteRegistrar) *RouteRegistrar {
+	simpleName := p.getSimpleName(funcName)
+
+	for fullName, reg := range registrars {
+		if fullName == funcName {
+			return reg
+		}
+		if strings.HasSuffix(fullName, "."+simpleName) {
+			return reg
+		}
+		if reg.Name == simpleName {
+			return reg
+		}
+	}
+
+	return nil
+}
+
+func (p *Parser) resolveGroupPrefix(groupArg ast.Expr, prefixes map[string]string) string {
+	if groupArg == nil {
+		return ""
+	}
+	if ident, ok := groupArg.(*ast.Ident); ok {
+		return prefixes[ident.Name]
+	}
+	return ""
 }
 
 // extractRoutesWithPrefix 在指定的 prefix 下解析路由註冊函數
@@ -208,96 +290,105 @@ func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix s
 		groupPrefixes[registrar.ParamName] = basePrefix
 	}
 
-	if registrar.FuncDecl.Recv != nil && len(registrar.FuncDecl.Recv.List) > 0 {
-		recv := registrar.FuncDecl.Recv.List[0]
-		if len(recv.Names) > 0 {
-			recvVarName := recv.Names[0].Name
-			recvType := p.extractReceiverType(recv.Type)
-			if recvType != "" {
-				p.controllerInstances[recvVarName] = pkgName + "." + recvType
-			}
-		}
-	}
+	p.registerReceiverInstance(registrar.FuncDecl, pkgName)
 
 	ast.Inspect(registrar.FuncDecl.Body, func(n ast.Node) bool {
-		if assign, ok := n.(*ast.AssignStmt); ok {
-			for i, rhs := range assign.Rhs {
-				if call, ok := rhs.(*ast.CallExpr); ok {
-					if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-						if sel.Sel.Name == "Group" && len(call.Args) > 0 {
-							if prefix := p.extractStringArg(call.Args[0]); prefix != "" {
-								parentPrefix := ""
-								if parentIdent, ok := sel.X.(*ast.Ident); ok {
-									parentPrefix = groupPrefixes[parentIdent.Name]
-								}
-								if i < len(assign.Lhs) {
-									if ident, ok := assign.Lhs[i].(*ast.Ident); ok {
-										groupPrefixes[ident.Name] = parentPrefix + prefix
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			return true
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			p.updateGroupPrefixes(node, groupPrefixes)
+		case *ast.CallExpr:
+			p.tryAddRouteFromCall(node, pkgName, groupPrefixes)
 		}
-
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok {
-			return true
-		}
-
-		method := sel.Sel.Name
-		httpMethods := map[string]bool{
-			"GET": true, "POST": true, "PUT": true, "DELETE": true,
-			"PATCH": true, "OPTIONS": true, "HEAD": true,
-			"Any": true, "Handle": true,
-		}
-
-		if !httpMethods[method] {
-			return true
-		}
-
-		if len(call.Args) < 2 {
-			return true
-		}
-
-		path := p.extractStringArg(call.Args[0])
-
-		groupPrefix := ""
-		if receiverIdent, ok := sel.X.(*ast.Ident); ok {
-			groupPrefix = groupPrefixes[receiverIdent.Name]
-		}
-
-		fullPath := groupPrefix + path
-
-		handlerArg := call.Args[len(call.Args)-1]
-		handlerName := p.resolveHandlerName(handlerArg, pkgName)
-
-		if handlerName == "" || shouldSkipHandler(handlerName) {
-			return true
-		}
-
-		for _, existing := range p.Routes {
-			if existing.Method == method && existing.Path == fullPath {
-				return true
-			}
-		}
-
-		route := &RouteInfo{
-			Method:      method,
-			Path:        fullPath,
-			HandlerName: handlerName,
-			Group:       groupPrefix,
-		}
-
-		p.Routes = append(p.Routes, route)
 		return true
 	})
+}
+
+func (p *Parser) registerReceiverInstance(fn *ast.FuncDecl, pkgName string) {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return
+	}
+
+	recv := fn.Recv.List[0]
+	if len(recv.Names) == 0 {
+		return
+	}
+
+	recvVarName := recv.Names[0].Name
+	recvType := p.extractReceiverType(recv.Type)
+	if recvType != "" {
+		p.controllerInstances[recvVarName] = pkgName + "." + recvType
+	}
+}
+
+func (p *Parser) updateGroupPrefixes(assign *ast.AssignStmt, prefixes map[string]string) {
+	for i, rhs := range assign.Rhs {
+		info := p.extractGroupCall(rhs)
+		if info == nil {
+			continue
+		}
+
+		parentPrefix := prefixes[info.parentVar]
+		varName := p.getAssignTarget(assign.Lhs, i)
+		if varName != "" {
+			prefixes[varName] = parentPrefix + info.prefix
+		}
+	}
+}
+
+func (p *Parser) tryAddRouteFromCall(call *ast.CallExpr, pkgName string, groupPrefixes map[string]string) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+
+	if !isHTTPMethod(sel.Sel.Name) || len(call.Args) < 2 {
+		return
+	}
+
+	path := p.extractStringArg(call.Args[0])
+	groupPrefix := p.getReceiverPrefix(sel.X, groupPrefixes)
+	fullPath := groupPrefix + path
+
+	handlerArg := call.Args[len(call.Args)-1]
+	handlerName := p.resolveHandlerName(handlerArg, pkgName)
+
+	if handlerName == "" || shouldSkipHandler(handlerName) {
+		return
+	}
+
+	if p.routeExists(sel.Sel.Name, fullPath) {
+		return
+	}
+
+	p.Routes = append(p.Routes, &RouteInfo{
+		Method:      sel.Sel.Name,
+		Path:        fullPath,
+		HandlerName: handlerName,
+		Group:       groupPrefix,
+	})
+}
+
+func (p *Parser) getReceiverPrefix(expr ast.Expr, prefixes map[string]string) string {
+	if ident, ok := expr.(*ast.Ident); ok {
+		return prefixes[ident.Name]
+	}
+	return ""
+}
+
+func (p *Parser) routeExists(method, path string) bool {
+	for _, existing := range p.Routes {
+		if existing.Method == method && existing.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func isHTTPMethod(name string) bool {
+	switch name {
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD", "Any", "Handle":
+		return true
+	default:
+		return false
+	}
 }
