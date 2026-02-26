@@ -1,6 +1,7 @@
-# Swaggo
+<!-- markdownlint-disable MD033 MD041 -->
+<img align="right" src="https://raw.githubusercontent.com/miyago9267/swaggo/main/assets/swaggo.svg" width="120" alt="swaggo" />
 
-![swaggo](https://raw.githubusercontent.com/miyago9267/swaggo/main/assets/swaggo.svg)
+# Swaggo
 
 🌍 *[English](README_EN.md) ∙ [繁體中文](../README.md)*
 
