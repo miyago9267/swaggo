@@ -188,6 +188,7 @@ func (p *Parser) extractRoutes(file *ast.File) {
 	}
 
 	p.extractDynamicRoutes(file, pkgName)
+	p.extractForRangeRoutes(file, pkgName)
 
 	ast.Inspect(file, func(n ast.Node) bool {
 		if assign, ok := n.(*ast.AssignStmt); ok {
@@ -240,11 +241,26 @@ func (p *Parser) extractRoutes(file *ast.File) {
 			return true
 		}
 
-		if len(call.Args) < 2 {
-			return true
+		// Handle() 的簽名是 Handle(method, path, ...handlers)，需要至少 3 個引數
+		// 其他 HTTP method 的簽名是 GET(path, ...handlers)，需要至少 2 個引數
+		if method == "Handle" {
+			if len(call.Args) < 3 {
+				return true
+			}
+		} else {
+			if len(call.Args) < 2 {
+				return true
+			}
 		}
 
-		path := p.extractStringArg(call.Args[0])
+		var httpMethod, path string
+		if method == "Handle" {
+			httpMethod = p.extractStringArg(call.Args[0])
+			path = p.extractStringArg(call.Args[1])
+		} else {
+			httpMethod = method
+			path = p.extractStringArg(call.Args[0])
+		}
 
 		groupPrefix := ""
 		if receiverIdent, ok := sel.X.(*ast.Ident); ok {
@@ -263,7 +279,7 @@ func (p *Parser) extractRoutes(file *ast.File) {
 		}
 
 		route := &RouteInfo{
-			Method:      method,
+			Method:      httpMethod,
 			Path:        groupPrefix + path,
 			HandlerName: handlerName,
 			Group:       groupPrefix,
@@ -295,6 +311,232 @@ func (p *Parser) extractDynamicRoutes(file *ast.File, pkgName string) {
 
 		return true
 	})
+}
+
+// extractForRangeRoutes 偵測 for-range 迴圈中的路由註冊
+// 例如：for _, route := range routes { r.Handle(route.Method, route.Path, route.Handler) }
+func (p *Parser) extractForRangeRoutes(file *ast.File, pkgName string) {
+	sliceLiterals := p.collectSliceLiterals(file)
+	if len(sliceLiterals) == 0 {
+		return
+	}
+
+	groupPrefixes := p.collectGroupPrefixes(file)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		rangeStmt, ok := n.(*ast.RangeStmt)
+		if !ok {
+			return true
+		}
+
+		// 取得迴圈值變數名（for _, route := range ... 中的 route）
+		valueVar := ""
+		if rangeStmt.Value != nil {
+			if ident, ok := rangeStmt.Value.(*ast.Ident); ok {
+				valueVar = ident.Name
+			}
+		}
+		if valueVar == "" {
+			return true
+		}
+
+		// 取得 range 目標變數名
+		targetName := ""
+		if ident, ok := rangeStmt.X.(*ast.Ident); ok {
+			targetName = ident.Name
+		}
+		if targetName == "" {
+			return true
+		}
+
+		elements, ok := sliceLiterals[targetName]
+		if !ok || len(elements) == 0 {
+			return true
+		}
+
+		p.processForRangeBody(rangeStmt.Body, valueVar, elements, pkgName, groupPrefixes)
+		return true
+	})
+}
+
+// collectSliceLiterals 收集檔案中所有 slice/array composite literal 的賦值
+func (p *Parser) collectSliceLiterals(file *ast.File) map[string][]ast.Expr {
+	result := make(map[string][]ast.Expr)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.AssignStmt:
+			for i, rhs := range node.Rhs {
+				cl, ok := rhs.(*ast.CompositeLit)
+				if !ok {
+					continue
+				}
+				if _, isArray := cl.Type.(*ast.ArrayType); !isArray {
+					continue
+				}
+				if i < len(node.Lhs) {
+					if ident, ok := node.Lhs[i].(*ast.Ident); ok {
+						result[ident.Name] = cl.Elts
+					}
+				}
+			}
+		case *ast.GenDecl:
+			for _, spec := range node.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				for i, value := range vs.Values {
+					cl, ok := value.(*ast.CompositeLit)
+					if !ok {
+						continue
+					}
+					if _, isArray := cl.Type.(*ast.ArrayType); !isArray {
+						continue
+					}
+					if i < len(vs.Names) {
+						result[vs.Names[i].Name] = cl.Elts
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return result
+}
+
+// processForRangeBody 處理 for-range body 中的路由呼叫
+func (p *Parser) processForRangeBody(body *ast.BlockStmt, valueVar string, elements []ast.Expr, pkgName string, groupPrefixes map[string]string) {
+	if body == nil {
+		return
+	}
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		method := sel.Sel.Name
+		if !isHTTPMethod(method) {
+			return true
+		}
+
+		groupPrefix := ""
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			groupPrefix = groupPrefixes[ident.Name]
+		}
+
+		for _, elt := range elements {
+			fieldValues := p.extractElementFieldValues(elt)
+			if len(fieldValues) == 0 {
+				continue
+			}
+
+			route := p.resolveForRangeRouteCall(call, method, valueVar, fieldValues, pkgName, groupPrefix)
+			if route != nil && !p.routeExists(route.Method, route.Path) {
+				p.Routes = append(p.Routes, route)
+			}
+		}
+
+		return true
+	})
+}
+
+// extractElementFieldValues 從 composite literal 元素中提取欄位值
+func (p *Parser) extractElementFieldValues(expr ast.Expr) map[string]ast.Expr {
+	cl, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return nil
+	}
+
+	result := make(map[string]ast.Expr)
+	for _, elt := range cl.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			continue
+		}
+		if key, ok := kv.Key.(*ast.Ident); ok {
+			result[key.Name] = kv.Value
+		}
+	}
+	return result
+}
+
+// resolveForRangeRouteCall 解析 for-range body 中的單一路由呼叫
+func (p *Parser) resolveForRangeRouteCall(call *ast.CallExpr, method string, valueVar string, fieldValues map[string]ast.Expr, pkgName string, groupPrefix string) *RouteInfo {
+	var httpMethod, path, handlerName string
+
+	if method == "Handle" {
+		if len(call.Args) < 3 {
+			return nil
+		}
+		httpMethod = p.resolveFieldAccess(call.Args[0], valueVar, fieldValues)
+		path = p.resolveFieldAccess(call.Args[1], valueVar, fieldValues)
+		handlerName = p.resolveHandlerFieldAccess(call.Args[len(call.Args)-1], valueVar, fieldValues, pkgName)
+	} else {
+		if len(call.Args) < 2 {
+			return nil
+		}
+		httpMethod = method
+		path = p.resolveFieldAccess(call.Args[0], valueVar, fieldValues)
+		handlerName = p.resolveHandlerFieldAccess(call.Args[len(call.Args)-1], valueVar, fieldValues, pkgName)
+	}
+
+	if httpMethod == "" || path == "" || handlerName == "" {
+		return nil
+	}
+
+	if shouldSkipHandler(handlerName) {
+		return nil
+	}
+
+	return &RouteInfo{
+		Method:      httpMethod,
+		Path:        groupPrefix + path,
+		HandlerName: handlerName,
+		Group:       groupPrefix,
+	}
+}
+
+// resolveFieldAccess 解析字串欄位：可能是字串字面量或 loop variable 的欄位存取
+func (p *Parser) resolveFieldAccess(expr ast.Expr, valueVar string, fieldValues map[string]ast.Expr) string {
+	if str := p.extractStringArg(expr); str != "" {
+		return str
+	}
+
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == valueVar {
+			if val, ok := fieldValues[sel.Sel.Name]; ok {
+				return p.extractStringArg(val)
+			}
+		}
+	}
+
+	return ""
+}
+
+// resolveHandlerFieldAccess 解析 handler 欄位：可能是直接引用或 loop variable 的欄位存取
+func (p *Parser) resolveHandlerFieldAccess(expr ast.Expr, valueVar string, fieldValues map[string]ast.Expr, pkgName string) string {
+	if name := p.resolveHandlerName(expr, pkgName); name != "" {
+		return name
+	}
+
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == valueVar {
+			if val, ok := fieldValues[sel.Sel.Name]; ok {
+				return p.resolveHandlerName(val, pkgName)
+			}
+		}
+	}
+
+	return ""
 }
 
 func (p *Parser) analyzeHandlerBody(fn *ast.FuncDecl, handler *HandlerInfo) {

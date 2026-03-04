@@ -86,29 +86,34 @@ func (p *Parser) buildFuncFullName(fn *ast.FuncDecl, pkgName string) string {
 	return pkgName + "." + fn.Name.Name
 }
 
-// getGinParamType 檢查參數是否為 *gin.RouterGroup 或 *gin.Engine
+// getGinParamType 檢查參數是否為 gin 路由相關型別
+// 支援 pointer type: *gin.RouterGroup, *gin.Engine
+// 支援 interface type: gin.IRouter, gin.IRoutes
 func (p *Parser) getGinParamType(expr ast.Expr) string {
-	star, ok := expr.(*ast.StarExpr)
-	if !ok {
+	// pointer type: *gin.RouterGroup, *gin.Engine
+	if star, ok := expr.(*ast.StarExpr); ok {
+		if sel, ok := star.X.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "gin" {
+				switch sel.Sel.Name {
+				case "RouterGroup", "Engine":
+					return sel.Sel.Name
+				}
+			}
+		}
 		return ""
 	}
 
-	sel, ok := star.X.(*ast.SelectorExpr)
-	if !ok {
-		return ""
+	// interface type: gin.IRouter, gin.IRoutes
+	if sel, ok := expr.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "gin" {
+			switch sel.Sel.Name {
+			case "IRouter", "IRoutes":
+				return sel.Sel.Name
+			}
+		}
 	}
 
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok || ident.Name != "gin" {
-		return ""
-	}
-
-	switch sel.Sel.Name {
-	case "RouterGroup", "Engine":
-		return sel.Sel.Name
-	default:
-		return ""
-	}
+	return ""
 }
 
 // findCallSites 找出路由註冊函數的呼叫點，追蹤傳入的 group prefix
@@ -341,11 +346,32 @@ func (p *Parser) tryAddRouteFromCall(call *ast.CallExpr, pkgName string, groupPr
 		return
 	}
 
-	if !isHTTPMethod(sel.Sel.Name) || len(call.Args) < 2 {
+	method := sel.Sel.Name
+	if !isHTTPMethod(method) {
 		return
 	}
 
-	path := p.extractStringArg(call.Args[0])
+	// Handle() 的簽名是 Handle(method, path, ...handlers)，需要至少 3 個引數
+	// 其他 HTTP method 的簽名是 GET(path, ...handlers)，需要至少 2 個引數
+	if method == "Handle" {
+		if len(call.Args) < 3 {
+			return
+		}
+	} else {
+		if len(call.Args) < 2 {
+			return
+		}
+	}
+
+	var httpMethod, path string
+	if method == "Handle" {
+		httpMethod = p.extractStringArg(call.Args[0])
+		path = p.extractStringArg(call.Args[1])
+	} else {
+		httpMethod = method
+		path = p.extractStringArg(call.Args[0])
+	}
+
 	groupPrefix := p.getReceiverPrefix(sel.X, groupPrefixes)
 	fullPath := groupPrefix + path
 
@@ -356,12 +382,12 @@ func (p *Parser) tryAddRouteFromCall(call *ast.CallExpr, pkgName string, groupPr
 		return
 	}
 
-	if p.routeExists(sel.Sel.Name, fullPath) {
+	if p.routeExists(httpMethod, fullPath) {
 		return
 	}
 
 	p.Routes = append(p.Routes, &RouteInfo{
-		Method:      sel.Sel.Name,
+		Method:      httpMethod,
 		Path:        fullPath,
 		HandlerName: handlerName,
 		Group:       groupPrefix,
