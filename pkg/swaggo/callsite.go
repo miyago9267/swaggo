@@ -245,8 +245,18 @@ func (p *Parser) extractCallInfo(call *ast.CallExpr, pkgName string) (funcName s
 		if ident, ok := fn.X.(*ast.Ident); ok {
 			// 單層: ident.Method
 			funcName = ident.Name + "." + fn.Sel.Name
+		} else if sel, ok := fn.X.(*ast.SelectorExpr); ok {
+			// 多層: a.field.Method → 嘗試透過 struct field 解析類型
+			if rootIdent, ok := sel.X.(*ast.Ident); ok {
+				if fieldType := p.resolveFieldType(rootIdent.Name, sel.Sel.Name); fieldType != "" {
+					funcName = fieldType + "." + fn.Sel.Name
+				} else {
+					funcName = fn.Sel.Name
+				}
+			} else {
+				funcName = fn.Sel.Name
+			}
 		} else {
-			// 多層: a.b.Method → 僅取 Method 名用於 registrar 匹配
 			funcName = fn.Sel.Name
 		}
 	}
@@ -426,6 +436,40 @@ func (p *Parser) registerReceiverInstance(fn *ast.FuncDecl, pkgName string) {
 	if recvType != "" {
 		p.controllerInstances[recvVarName] = pkgName + "." + recvType
 	}
+}
+
+// resolveFieldType 透過 controllerInstances 和 Types 解析 varName.fieldName 的類型
+// 例如：m 的類型是 main.Module，Module 有 field handler *Handler → 回傳 "main.Handler"
+func (p *Parser) resolveFieldType(varName, fieldName string) string {
+	typeName, ok := p.controllerInstances[varName]
+	if !ok {
+		return ""
+	}
+
+	typeInfo := p.Types[typeName]
+	if typeInfo == nil {
+		// 也試不含 package prefix 的 key
+		parts := strings.SplitN(typeName, ".", 2)
+		if len(parts) == 2 {
+			typeInfo = p.Types[parts[1]]
+		}
+	}
+	if typeInfo == nil {
+		return ""
+	}
+
+	for _, field := range typeInfo.Fields {
+		if field.Name == fieldName {
+			fieldTypeName := strings.TrimPrefix(field.Type, "*")
+			// 用原始類型的 package prefix
+			if dot := strings.LastIndex(typeName, "."); dot >= 0 {
+				return typeName[:dot] + "." + fieldTypeName
+			}
+			return fieldTypeName
+		}
+	}
+
+	return ""
 }
 
 func (p *Parser) updateGroupPrefixes(assign *ast.AssignStmt, prefixes map[string]string) {
