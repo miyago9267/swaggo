@@ -164,10 +164,10 @@ func HealthCheck(c *gin.Context) {}
 	}
 
 	expected := map[string]string{
-		"GET:/items":     "main.ListItems",
-		"POST:/items":    "main.CreateItem",
+		"GET:/items":        "main.ListItems",
+		"POST:/items":       "main.CreateItem",
 		"DELETE:/items/:id": "main.DeleteItem",
-		"GET:/health":    "main.HealthCheck",
+		"GET:/health":       "main.HealthCheck",
 	}
 
 	found := make(map[string]bool)
