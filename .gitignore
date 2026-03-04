@@ -36,3 +36,6 @@ bin/
 # Generated docs (for testing)
 docs/*.json
 docs/*.yaml
+
+# Spec documents (local only)
+docs/DYNAMIC_ROUTES_SPEC.md
