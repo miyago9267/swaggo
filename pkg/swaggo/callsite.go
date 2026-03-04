@@ -243,7 +243,11 @@ func (p *Parser) extractCallInfo(call *ast.CallExpr, pkgName string) (funcName s
 		funcName = pkgName + "." + fn.Name
 	case *ast.SelectorExpr:
 		if ident, ok := fn.X.(*ast.Ident); ok {
+			// 單層: ident.Method
 			funcName = ident.Name + "." + fn.Sel.Name
+		} else {
+			// 多層: a.b.Method → 僅取 Method 名用於 registrar 匹配
+			funcName = fn.Sel.Name
 		}
 	}
 
@@ -284,7 +288,16 @@ func (p *Parser) resolveGroupPrefix(groupArg ast.Expr, prefixes map[string]strin
 
 // extractRoutesWithPrefix 在指定的 prefix 下解析路由註冊函數
 func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix string) {
+	p.extractRoutesWithPrefixDepth(registrar, basePrefix, 0)
+}
+
+func (p *Parser) extractRoutesWithPrefixDepth(registrar *RouteRegistrar, basePrefix string, depth int) {
 	if registrar.FuncDecl == nil || registrar.FuncDecl.Body == nil {
+		return
+	}
+
+	// 防止無限遞迴
+	if depth > 5 {
 		return
 	}
 
@@ -303,9 +316,99 @@ func (p *Parser) extractRoutesWithPrefix(registrar *RouteRegistrar, basePrefix s
 			p.updateGroupPrefixes(node, groupPrefixes)
 		case *ast.CallExpr:
 			p.tryAddRouteFromCall(node, pkgName, groupPrefixes)
+			// 嘗試追蹤 registrar 內部對其他 registrar 的呼叫
+			p.tryFollowNestedRegistrar(node, pkgName, groupPrefixes, depth)
 		}
 		return true
 	})
+}
+
+// tryFollowNestedRegistrar 偵測 registrar body 內對其他 registrar 的呼叫
+// 例如：m.handler.RegisterRoutes(r) 或 subRegistrar(r)
+func (p *Parser) tryFollowNestedRegistrar(call *ast.CallExpr, pkgName string, groupPrefixes map[string]string, depth int) {
+	funcName, groupArg := p.extractCallInfo(call, pkgName)
+	if funcName == "" {
+		return
+	}
+
+	reg := p.matchRegistrar(funcName, p.routeRegistrars)
+	if reg == nil {
+		return
+	}
+
+	prefix := p.resolveGroupPrefix(groupArg, groupPrefixes)
+	p.extractRoutesWithPrefixDepth(reg, prefix, depth+1)
+}
+
+// findIndirectCallSites 找出透過函數引用傳遞的間接 registrar 呼叫
+// 例如: SetupRoutes(bookingsModule.RegisterRoutes, inventoryModule.RegisterRoutes)
+func (p *Parser) findIndirectCallSites(registrars map[string]*RouteRegistrar) []CallSite {
+	var callSites []CallSite
+
+	for _, file := range p.files {
+		pkgName := file.Name.Name
+
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+
+			for _, arg := range call.Args {
+				reg := p.matchArgToRegistrar(arg, pkgName, registrars)
+				if reg != nil {
+					callSites = append(callSites, CallSite{
+						Registrar:   reg,
+						GroupPrefix: "",
+					})
+				}
+			}
+
+			return true
+		})
+	}
+
+	return callSites
+}
+
+// matchArgToRegistrar 檢查 call argument 是否為已知 registrar 的函數引用
+func (p *Parser) matchArgToRegistrar(arg ast.Expr, pkgName string, registrars map[string]*RouteRegistrar) *RouteRegistrar {
+	switch expr := arg.(type) {
+	case *ast.SelectorExpr:
+		// mod.RegisterRoutes（method value）
+		methodName := expr.Sel.Name
+
+		// 嘗試用 controller instance 做精確匹配
+		if ident, ok := expr.X.(*ast.Ident); ok {
+			if ctrlType, ok := p.controllerInstances[ident.Name]; ok {
+				fullName := ctrlType + "." + methodName
+				if reg, ok := registrars[fullName]; ok {
+					return reg
+				}
+			}
+		}
+
+		// Fallback：用方法名匹配
+		for _, reg := range registrars {
+			if reg.Name == methodName {
+				return reg
+			}
+		}
+
+	case *ast.Ident:
+		// RegisterRoutes（同 package 的 bare function reference）
+		funcName := pkgName + "." + expr.Name
+		if reg, ok := registrars[funcName]; ok {
+			return reg
+		}
+		for _, reg := range registrars {
+			if reg.Name == expr.Name {
+				return reg
+			}
+		}
+	}
+
+	return nil
 }
 
 func (p *Parser) registerReceiverInstance(fn *ast.FuncDecl, pkgName string) {

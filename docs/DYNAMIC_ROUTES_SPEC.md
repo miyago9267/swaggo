@@ -82,4 +82,4 @@ swaggo 目前無法處理「動態路由」— 透過 for-loop 批量定義、in
 - [x] Phase 1：A + B 實作
 - [x] Phase 1：測試（callsite_test.go，6 個測試全過）
 - [x] Phase 2：for-range + 已知 slice（C）— 含 Handle()、group prefix、package-level var 三個測試
-- [ ] Phase 3：interface 迴圈呼叫 + variadic 追蹤（D + E）
+- [x] Phase 3：interface 迴圈呼叫（D）+ variadic 追蹤（E）+ 巢狀 registrar 遞迴追蹤

@@ -177,6 +177,12 @@ func (p *Parser) Analyze() error {
 		p.extractRoutesWithPrefix(cs.Registrar, cs.GroupPrefix)
 	}
 
+	// Phase 3：追蹤透過函數引數間接傳遞的 registrar
+	indirectSites := p.findIndirectCallSites(p.routeRegistrars)
+	for _, cs := range indirectSites {
+		p.extractRoutesWithPrefix(cs.Registrar, cs.GroupPrefix)
+	}
+
 	for _, route := range p.Routes {
 		if handler, ok := p.Handlers[route.HandlerName]; ok {
 			route.Handler = handler

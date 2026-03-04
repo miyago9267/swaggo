@@ -413,6 +413,201 @@ func ReadyCheck(c *gin.Context)  {}
 	}
 }
 
+func TestVariadicRegistrarPassing(t *testing.T) {
+	src := `package main
+
+import "github.com/gin-gonic/gin"
+
+func SetupRoutes(r *gin.Engine, registrars ...func(gin.IRouter)) {
+	for _, reg := range registrars {
+		reg(r)
+	}
+}
+
+func RegisterUserRoutes(r gin.IRouter) {
+	r.GET("/users", ListUsers)
+	r.POST("/users", CreateUser)
+}
+
+func RegisterOrderRoutes(r gin.IRouter) {
+	r.GET("/orders", ListOrders)
+}
+
+func main() {
+	r := gin.Default()
+	SetupRoutes(r, RegisterUserRoutes, RegisterOrderRoutes)
+}
+
+func ListUsers(c *gin.Context)   {}
+func CreateUser(c *gin.Context)  {}
+func ListOrders(c *gin.Context)  {}
+`
+	p := NewParser()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p.fset = fset
+	p.files = append(p.files, file)
+
+	if err := p.Analyze(); err != nil {
+		t.Fatalf("analyze error: %v", err)
+	}
+
+	expected := []string{
+		"GET:/users",
+		"POST:/users",
+		"GET:/orders",
+	}
+
+	found := make(map[string]bool)
+	for _, route := range p.Routes {
+		found[route.Method+":"+route.Path] = true
+	}
+
+	for _, key := range expected {
+		if !found[key] {
+			t.Errorf("expected route %s not found", key)
+			for _, route := range p.Routes {
+				t.Logf("  found: %s %s -> %s", route.Method, route.Path, route.HandlerName)
+			}
+		}
+	}
+}
+
+func TestNestedRegistrarCalls(t *testing.T) {
+	src := `package main
+
+import "github.com/gin-gonic/gin"
+
+type Module struct {
+	handler *Handler
+}
+
+type Handler struct{}
+
+func (m *Module) RegisterRoutes(r gin.IRouter) {
+	m.handler.RegisterRoutes(r)
+}
+
+func (h *Handler) RegisterRoutes(r gin.IRouter) {
+	bookings := r.Group("/bookings")
+	bookings.GET("", h.List)
+	bookings.POST("", h.Create)
+	bookings.GET("/:id", h.Get)
+}
+
+func (h *Handler) List(c *gin.Context)   {}
+func (h *Handler) Create(c *gin.Context) {}
+func (h *Handler) Get(c *gin.Context)    {}
+
+func main() {
+	r := gin.Default()
+	mod := &Module{handler: &Handler{}}
+	mod.RegisterRoutes(r)
+}
+`
+	p := NewParser()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p.fset = fset
+	p.files = append(p.files, file)
+
+	if err := p.Analyze(); err != nil {
+		t.Fatalf("analyze error: %v", err)
+	}
+
+	expected := []string{
+		"GET:/bookings",
+		"POST:/bookings",
+		"GET:/bookings/:id",
+	}
+
+	found := make(map[string]bool)
+	for _, route := range p.Routes {
+		found[route.Method+":"+route.Path] = true
+	}
+
+	for _, key := range expected {
+		if !found[key] {
+			t.Errorf("expected route %s not found", key)
+			for _, route := range p.Routes {
+				t.Logf("  found: %s %s -> %s", route.Method, route.Path, route.HandlerName)
+			}
+		}
+	}
+}
+
+func TestVariadicWithModulePattern(t *testing.T) {
+	src := `package main
+
+import "github.com/gin-gonic/gin"
+
+type BookingsHandler struct{}
+type OrdersHandler struct{}
+
+func (h *BookingsHandler) RegisterRoutes(r gin.IRouter) {
+	g := r.Group("/bookings")
+	g.GET("", h.List)
+	g.POST("", h.Create)
+}
+
+func (h *OrdersHandler) RegisterRoutes(r gin.IRouter) {
+	g := r.Group("/orders")
+	g.GET("", h.List)
+}
+
+func (h *BookingsHandler) List(c *gin.Context)   {}
+func (h *BookingsHandler) Create(c *gin.Context) {}
+func (h *OrdersHandler) List(c *gin.Context)     {}
+
+func SetupRoutes(registrars ...func(gin.IRouter)) {}
+
+func main() {
+	r := gin.Default()
+	bh := &BookingsHandler{}
+	oh := &OrdersHandler{}
+	SetupRoutes(bh.RegisterRoutes, oh.RegisterRoutes)
+}
+`
+	p := NewParser()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	p.fset = fset
+	p.files = append(p.files, file)
+
+	if err := p.Analyze(); err != nil {
+		t.Fatalf("analyze error: %v", err)
+	}
+
+	expected := []string{
+		"GET:/bookings",
+		"POST:/bookings",
+		"GET:/orders",
+	}
+
+	found := make(map[string]bool)
+	for _, route := range p.Routes {
+		found[route.Method+":"+route.Path] = true
+	}
+
+	for _, key := range expected {
+		if !found[key] {
+			t.Errorf("expected route %s not found", key)
+			for _, route := range p.Routes {
+				t.Logf("  found: %s %s -> %s", route.Method, route.Path, route.HandlerName)
+			}
+		}
+	}
+}
+
 // extractParamType 是測試 helper，解析 src 中第一個函數的第一個參數型別
 func extractParamType(t *testing.T, p *Parser, src string) string {
 	t.Helper()
